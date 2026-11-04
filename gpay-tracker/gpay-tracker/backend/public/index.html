@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Payments</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: #f4f6fa; color: #1d2330; }
+  header { background: #1a73e8; color: #fff; padding: 16px; font-size: 18px; font-weight: 600; }
+  main { padding: 16px; max-width: 520px; margin: auto; }
+  input[type=date], input[type=password] {
+    width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ccd; border-radius: 10px; margin-bottom: 12px;
+  }
+  .card { background: #fff; border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .totals { display: flex; justify-content: space-between; gap: 12px; }
+  .totals div { flex: 1; }
+  .label { font-size: 12px; color: #6b7280; }
+  .big { font-size: 20px; font-weight: 700; margin-top: 4px; }
+  .debit { color: #d93025; }
+  .credit { color: #188038; }
+  .tx { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eef0f4; }
+  .tx:last-child { border: none; }
+  .party { font-weight: 500; }
+  .time { font-size: 12px; color: #6b7280; }
+  .day-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eef0f4; cursor: pointer; }
+  .hidden { display: none; }
+  h3 { margin: 16px 0 8px; }
+  button { width: 100%; padding: 12px; font-size: 16px; border: none; border-radius: 10px; background: #1a73e8; color: #fff; cursor: pointer; }
+</style>
+</head>
+<body>
+<header>Family Payments</header>
+<main>
+  <div id="login" class="card">
+    <input type="password" id="key" placeholder="Enter password" />
+    <button id="loginBtn">Open</button>
+  </div>
+
+  <div id="app" class="hidden">
+    <input type="date" id="date" />
+    <div class="card">
+      <div class="totals">
+        <div><div class="label">Spent</div><div class="big debit" id="spent">₹0</div></div>
+        <div><div class="label">Received</div><div class="big credit" id="received">₹0</div></div>
+      </div>
+      <div class="label" style="margin-top:8px" id="count"></div>
+    </div>
+    <div class="card" id="txList"></div>
+    <h3>Daily totals</h3>
+    <div class="card" id="dailyList"></div>
+  </div>
+</main>
+
+<script>
+let VIEW_KEY = '';
+const $ = id => document.getElementById(id);
+const fmt = n => '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+async function api(path) {
+  const res = await fetch(path, { headers: { 'x-view-key': VIEW_KEY } });
+  if (res.status === 401) throw new Error('Wrong password');
+  if (!res.ok) throw new Error('Server error');
+  return res.json();
+}
+
+$('loginBtn').onclick = async () => {
+  VIEW_KEY = $('key').value;
+  try {
+    await loadDaily();
+    $('login').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    $('date').value = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    await loadDay($('date').value);
+  } catch (e) { alert(e.message); }
+};
+
+$('date').onchange = () => loadDay($('date').value);
+
+async function loadDay(day) {
+  const rows = await api(`/api/transactions?date=${day}`);
+  let spent = 0, received = 0;
+  rows.forEach(r => r.type === 'debit' ? spent += r.amount : received += r.amount);
+  $('spent').textContent = fmt(spent);
+  $('received').textContent = fmt(received);
+  $('count').textContent = `${rows.length} transaction${rows.length === 1 ? '' : 's'}`;
+  $('txList').innerHTML = rows.length
+    ? rows.map(r => `
+        <div class="tx">
+          <div>
+            <div class="party">${esc(r.party || 'Unknown')}</div>
+            <div class="time">${new Date(r.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })}</div>
+          </div>
+          <div class="${r.type}">${r.type === 'debit' ? '−' : '+'}${fmt(r.amount)}</div>
+        </div>`).join('')
+    : '<div class="label">No transactions this day</div>';
+}
+
+async function loadDaily() {
+  const days = await api('/api/daily');
+  $('dailyList').innerHTML = days.length
+    ? days.map(d => `
+        <div class="day-row" onclick="pick('${esc(d.day)}')">
+          <div>
+            <div class="party">${esc(d.day)}</div>
+            <div class="time">${d.count} transactions</div>
+          </div>
+          <div style="text-align:right">
+            <div class="debit">−${fmt(d.spent)}</div>
+            <div class="credit">+${fmt(d.received)}</div>
+          </div>
+        </div>`).join('')
+    : '<div class="label">No data yet</div>';
+}
+
+function pick(day) {
+  $('date').value = day;
+  loadDay(day);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+</script>
+</body>
+</html>
